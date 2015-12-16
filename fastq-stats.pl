@@ -1,0 +1,207 @@
+#!/usr/bin/perl -w
+
+# Copyright © 2015, Owen Marshall
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or (at
+# your option) any later version. 
+# 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details. 
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 
+# USA
+
+use strict;
+$|++;
+
+
+unless (@ARGV) {
+	help();
+}
+
+my %vars = (
+	'dark' => 0,
+	'sample' => 2000000,
+	'save_re'=> 0,
+);
+
+my %vars_details = (
+	'dark' => 'Calculate stats for reads generated using four dark cycles',
+	'sample' => 'Number of reads to sample',
+	'save_re' => 'Save all reads that match a supplied regexp',
+);
+
+my @in_files;
+
+process_cli();
+analyse();
+
+exit 0;
+
+
+sub analyse {
+	
+	my %seqtests_full = (
+		'gatcs' => qr/^[G|N]ATC/,
+		'ads' => qr/^[G|N][G|N][T|N]CGCGGCCGAGGATC/,
+		'dimers' => qr/^[C|N]TAATACGACTCACTATAGGGCAGCGT/,
+		'int' => qr/.+GATC/,
+		);
+	
+	my %seqtests_dark = (
+		'gatcs' => qr/^[G|N]ATC/,
+		'ads' => qr/GCGGCCGAGGATC/,
+		'dimers' => qr/TACGACTCACTATAGGGCAGCGT/,
+		'int' => qr/.+GATC/,
+		);
+
+	my %seqtests = $vars{'dark'} ? %seqtests_dark : %seqtests_full;
+
+	foreach my $fn (@in_files) {
+		print STDERR "Reading file $fn ...\n";
+		open(IN, "gunzip -c $fn |") || die "ERROR: Cannot open input for reading: $!\n";
+		
+		if ($vars{'save_re'}) {
+			my ($fhead) = $fn =~ m/(.*).fastq/;
+			print STDERR "Writing reads that match $vars{'save_re'} to $fhead.saved.fastq.gz ...\n";
+			open(OUT, "| /bin/gzip -c > $fhead.saved.fastq.gz") || die "ERROR: Cannot open file for writing: $!\n"
+		}
+			
+		my %seqcounts;
+		foreach my $k (keys(%seqtests)) {
+			$seqcounts{$k} = 0;
+		}
+		
+		my ($total, $id, $seq, $desc, $qual);
+		my $lines=0;
+		while (<IN>) {
+			chomp;
+			my $lnum = $lines%4 +1;
+		
+			# Switch is too slow ...
+			$lines++;		
+			if ($lnum == 1) {$id = $_; $seq =""; $desc=""; $qual=""; next};
+			if ($lnum == 2) {$seq = $_; next};
+			if ($lnum == 3) {$desc = $_; next} ;
+			$qual = $_;
+			
+			if ($qual) {
+				foreach my $k (keys(%seqtests)) {
+					$seqcounts{$k}++ if $seq =~ $seqtests{$k};
+				}
+				
+				if ($seq =~ $vars{'save_re'}) {
+					print OUT "$id\n$seq\n$desc\n$qual\n";
+				}
+				
+				$total++;
+				
+				if ($total%10000 == 0) {
+					my %res;
+					my $out;
+					foreach my $k (sort(keys(%seqtests))) {
+						$res{$k} = $seqcounts{$k} ? sprintf("%0.2f",$seqcounts{$k}/$total*100) : 0;
+						$out .= " | $k: $res{$k}%";
+					}
+					
+					print STDERR "[$total $out]\r";
+				}
+				
+				last if $vars{'sample'} && $total > $vars{'sample'};
+			}
+		}
+		
+		print STDERR "                                                                                                   \r";
+		
+		my $out;
+		my %res;
+		foreach my $k (sort(keys(%seqtests))) {
+			$res{$k} = $seqcounts{$k} ? sprintf("%0.2f",$seqcounts{$k}/$total*100) : 0;
+			$out .= "$k:\t$seqcounts{$k}\t$res{$k}%\n";
+		}
+		print "$out\n";
+	}
+}
+
+
+sub process_cli {
+	foreach (@ARGV) {
+		if (/--(.*)=(.*)/) {
+			unless (defined($vars{$1})) {
+				print STDERR "Did not understand $_ ...\n";
+				help();
+			}
+			my ($v, $opt) = ($1,$2);
+			$vars{$v} = $opt;
+			next;
+		} elsif (/--h[elp]*/) {
+			help();
+		} elsif (/--(.*)/) {
+			# if no parameter is specified we assume it's a switch ...
+			if (defined($vars{$1})) {
+				$vars{$1} = 1;
+			} else {
+				print STDERR "Did not understand $_ ...\n";
+				help();
+			}
+			next;
+		}
+		push @in_files, $_;
+	}
+}
+
+
+sub help {
+	print STDOUT <<EOT;
+
+fastq-stats.pl
+Analyses FASTQ files for typical DamIDseq features
+	
+Options:
+EOT
+	
+	my $opt_len = 0;
+	foreach (keys %vars) {
+		my $l = length($_);
+		$opt_len = $l if $l > $opt_len;
+	}
+	
+	$opt_len+=2;
+	
+	my $cols= `tput cols` || 80;
+	
+	my ($v, $val, $def, $def_format);
+	my $help_format = "format STDOUT =\n"
+		.' '.'^'.'<'x$opt_len . ' '. '^' . '<'x($cols-$opt_len-4) . "\n"
+		.'$v, $def_format'."\n"
+		.' '.'^'.'<'x$opt_len . '   '. '^' . '<'x($cols-$opt_len-6) . "~~\n"
+		.'$v, $def_format'."\n"
+		.".\n";
+		
+	eval $help_format;
+	die $@ if $@;
+	
+	foreach my $k (sort (keys %vars)) {
+		($v, $val, $def) = ($k, $vars{$k}, $vars_details{$k});
+		$def||="";
+		$def_format = $val ? "$def\n\r[Current value: $val]" : $def;
+		$v = "--$v";
+#		format =
+# ^<<<<<<<<<<<<<<<<<<<< ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+#$v, $def_format
+# ^<<<<<<<<<<<<<<<<<<<<   ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ~~
+#$v, $def_format
+#.
+
+		write();
+		
+	}
+	print STDOUT "\n";
+	exit 1;
+}
