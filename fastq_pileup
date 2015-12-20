@@ -1,0 +1,173 @@
+#!/usr/bin/perl -w
+# Only works on Illumina v1.8 or greater fastq data ...
+
+# Copyright © 2015, Owen Marshall
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or (at
+# your option) any later version. 
+# 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details. 
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 
+# USA
+
+use strict;
+use File::Basename;
+$|++;
+
+unless (@ARGV) {
+	help();
+}
+
+my %vars = (
+	'sample' => 2000000,
+	'output_cutoff' => 1,
+);
+
+my %vars_details = (
+	'sample' => 'Analyse no more than this number of reads (use "all" to process the entire file)',
+	'output_cutoff' => 'Do not output sequences with fewer than this number of reads',
+);
+
+my @in_files;
+
+process_cli();
+analyse();
+
+exit 0;
+
+sub analyse {
+	foreach my $fn (@in_files) {
+		
+		my ($fhead) = fileparse($ARGV[0], qr/\.[^.]*/);
+		my $fout = "$fhead.pileup.csv";
+		
+		print STDERR "Reading file $fn ...\n";
+		open(IN, "gunzip -c $fn |") || die "ERROR: Cannot open input for reading: $!";
+			
+		my %pile;
+		my $lines=0;
+		my ($id, $seq, $desc, $qual, $total);
+		
+		while (<IN>) {
+			chomp;
+			my $lnum = $lines%4 +1;
+			
+			# Switch is too slow ...
+			$lines++;		
+			if ($lnum == 1) {$id = $_; $seq =""; $desc=""; $qual=""; next};
+			if ($lnum == 2) {$seq = $_; next};
+			if ($lnum == 3) {$desc = $_; next};
+			$qual = $_;
+			
+			if ($qual) {
+				# full set; process
+				$total++;
+				
+				unless ($vars{'sample'} eq "all") {
+					last if $total > $vars{'sample'};
+				}
+				
+				if ($total%100000 == 0) {
+					print STDERR "$total reads processed ...\r";
+				}
+				
+				$pile{$seq}++;
+			}
+		}
+		close IN;
+		
+		open(my $fh, '>', $fout) || die "Could not open output file for writing: $!\n";
+		
+		foreach my $k (sort {$pile{$b} <=> $pile{$a}} keys %pile) {
+			last if $pile{$k} < $vars{'output_cutoff'};
+			print $fh "$k\t$pile{$k}\n";
+		}
+		
+		close $fh;
+	}
+}
+
+
+sub process_cli {
+	foreach (@ARGV) {
+		if (/--(.*)=(.*)/) {
+			unless (defined($vars{$1})) {
+				print STDERR "Did not understand $_ ...\n";
+				help();
+			}
+			my ($v, $opt) = ($1,$2);
+			$vars{$v} = $opt;
+			next;
+		} elsif (/--h[elp]*/) {
+			help();
+		} elsif (/--(.*)/) {
+			# if no parameter is specified we assume it's a switch ...
+			if (defined($vars{$1})) {
+				$vars{$1} = 1;
+			} else {
+				print STDERR "Did not understand $_ ...\n";
+				help();
+			}
+			next;
+		}
+		push @in_files, $_;
+	}
+}
+
+
+sub help {
+	print STDOUT <<EOT;
+
+fastq-collapse.pl
+Performs a read pile-up on a Illumina v1.8 or greater FASTQ file.
+	
+Options:
+EOT
+	
+	my $opt_len = 0;
+	foreach (keys %vars) {
+		my $l = length($_);
+		$opt_len = $l if $l > $opt_len;
+	}
+	
+	$opt_len+=2;
+	
+	my $cols= `tput cols` || 80;
+	
+	my ($v, $val, $def, $def_format);
+	my $help_format = "format STDOUT =\n"
+		.' '.'^'.'<'x$opt_len . ' '. '^' . '<'x($cols-$opt_len-4) . "\n"
+		.'$v, $def_format'."\n"
+		.' '.'^'.'<'x$opt_len . '   '. '^' . '<'x($cols-$opt_len-6) . "~~\n"
+		.'$v, $def_format'."\n"
+		.".\n";
+		
+	eval $help_format;
+	die $@ if $@;
+	
+	foreach my $k (sort (keys %vars)) {
+		($v, $val, $def) = ($k, $vars{$k}, $vars_details{$k});
+		$def||="";
+		$def_format = $val ? "$def\n\r[Current value: $val]" : $def;
+		$v = "--$v";
+#		format =
+# ^<<<<<<<<<<<<<<<<<<<< ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+#$v, $def_format
+# ^<<<<<<<<<<<<<<<<<<<<   ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ~~
+#$v, $def_format
+#.
+
+		write();
+		
+	}
+	print STDOUT "\n";
+	exit 1;
+}
