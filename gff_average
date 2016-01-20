@@ -115,7 +115,18 @@ sub load_gff {
 	my $p=0;
 	foreach (<IN>) {
 		chomp;
-		my ($chr, $source, $type, $start, $end, $score, $b, $c, $name) = split('\t');
+		
+		my @line = split('\t');
+		
+		my ($chr, $start, $end, $score);
+		if ($#line == 3) {
+			# bedgraph
+			($chr, $start, $end, $score) = @line;
+		} else {
+			# GFF
+			($chr, $start, $end, $score) = @line[0,3,4,5];
+		}
+		
 		next unless $start;
 		
 		print STDERR "Read $p lines ...\r" if ($p%10000 == 0);
@@ -191,7 +202,7 @@ sub process_cli {
 sub help {
 	print STDOUT <<EOT;
 
-Usage: gff_average.pl [gff files to process]
+Usage: gff_average [gff files to process]
 
 Options:
 EOT
