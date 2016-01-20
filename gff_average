@@ -31,6 +31,8 @@ my @out;
 my %probes;
 my %scores;
 
+my $format = 'bed';
+
 
 unless (@ARGV) {
 	help();
@@ -102,7 +104,11 @@ sub output {
 	open (OUT, ">$fout") || die "Cannot open output file for writing: $!\n";
 	foreach (@out) {
 		my ($chr, $source, $type, $start, $end, $score, $b, $c, $name) = @{$_};
-		print OUT join("\t", $chr, '.', '.', $start, $end, $score, '.', '.', '.'), "\n";
+		if ($format eq 'gff') {
+			print OUT join("\t", $chr, '.', '.', $start, $end, $score, '.', '.', '.'), "\n";
+		} else {
+			print OUT join("\t", $chr, $start, $end, $score), "\n";
+		}
 	}
 }
 
@@ -125,6 +131,7 @@ sub load_gff {
 		} else {
 			# GFF
 			($chr, $start, $end, $score) = @line[0,3,4,5];
+			$format = 'gff';
 		}
 		
 		next unless $start;
