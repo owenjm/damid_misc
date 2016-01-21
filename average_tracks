@@ -31,7 +31,7 @@ my @out;
 my %probes;
 my %scores;
 
-my $format = 'bed';
+my $format = 'bedgraph';
 
 
 unless (@ARGV) {
@@ -58,7 +58,7 @@ foreach (@in_files) {
 
 my ($fhead,$dir,$ext) = fileparse($ARGV[0], qr/\.[^.]*/);
 $fhead =~ s/-n\d+-/-/; # remove -n1- -n2- type annotations
-my $fout = "$fhead.average.gff";
+my $fout = "$fhead.average.$format";
 
 analyse();
 sort_array();
@@ -102,6 +102,9 @@ sub sort_array {
 sub output {
 	print STDERR "Writing output to $fout ...\n";
 	open (OUT, ">$fout") || die "Cannot open output file for writing: $!\n";
+	
+	print OUT qq(track type=bedGraph name="$fhead.average" description="$fhead.average"\n) unless $format eq 'gff';
+	
 	foreach (@out) {
 		my ($chr, $source, $type, $start, $end, $score, $b, $c, $name) = @{$_};
 		if ($format eq 'gff') {
@@ -120,9 +123,12 @@ sub load_gff {
 	
 	my $p=0;
 	foreach (<IN>) {
+		next if m/^track/;
 		chomp;
 		
 		my @line = split('\t');
+		
+		next unless $#line > 2;
 		
 		my ($chr, $start, $end, $score);
 		if ($#line == 3) {
