@@ -46,7 +46,7 @@ exit 0;
 sub analyse {
 	foreach my $fn (@in_files) {
 		
-		my ($fhead) = fileparse($ARGV[0], qr/\.[^.]*/);
+		my ($fhead) = fileparse($fn, qr/\.[^.]*/);
 		my $fout = "$fhead.pileup.csv";
 		
 		print STDERR "Reading file $fn ...\n";
