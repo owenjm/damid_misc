@@ -26,18 +26,33 @@ unless (@ARGV) {
 }
 
 my %vars = (
-	'dark' => 0,
 	'sample' => 2000000,
 	'save_re'=> 0,
 );
 
 my %vars_details = (
-	'dark' => 'Calculate stats for reads generated using four dark cycles',
 	'sample' => 'Number of reads to sample',
 	'save_re' => 'Save all reads that match a supplied regexp',
 );
 
 my @in_files;
+
+my %seqtests = (
+	'gatc' => qr/^[G|N]ATC/,
+	'ad' => qr/^[G|N][G|N][T|N]CGCGGCCGAGGATC/,
+	'dim_fwd' => qr/TAATACGACTCACTATAGGGCAGCGTGGTCGCGG/,
+	'dim_rev' => qr/CCGCGACCACGCTGCCCTATAGTGAGTCGTATTA/,
+	'int_gatc' => qr/.+GATC/,
+);
+
+my %seqdesc = (
+	'gatc' =>    'Initial GATC sequence . ',
+	'ad' =>      'Uncut DamID adaptors .. ',
+	'dim_fwd' => 'Primer-dimer (fwd) .... ',
+	'dim_rev' => 'Primer-dimer (rev) .... ',
+	'int_gatc' =>'Internal GATC sites ... ',
+);
+
 
 process_cli();
 analyse();
@@ -47,22 +62,6 @@ exit 0;
 
 sub analyse {
 	
-	my %seqtests_full = (
-		'gatcs' => qr/^[G|N]ATC/,
-		'ads' => qr/^[G|N][G|N][T|N]CGCGGCCGAGGATC/,
-		'dimers' => qr/^[C|N]TAATACGACTCACTATAGGGCAGCGT/,
-		'int' => qr/.+GATC/,
-		);
-	
-	my %seqtests_dark = (
-		'gatcs' => qr/^[G|N]ATC/,
-		'ads' => qr/GCGGCCGAGGATC/,
-		'dimers' => qr/TACGACTCACTATAGGGCAGCGT/,
-		'int' => qr/.+GATC/,
-		);
-
-	my %seqtests = $vars{'dark'} ? %seqtests_dark : %seqtests_full;
-
 	foreach my $fn (@in_files) {
 		print STDERR "Reading file $fn ...\n";
 		open(IN, "gunzip -c $fn |") || die "ERROR: Cannot open input for reading: $!\n";
@@ -117,13 +116,13 @@ sub analyse {
 			}
 		}
 		
-		print STDERR "                                                                                                   \r";
+		print STDERR "                                                                                                   \r\n";
 		
 		my $out;
 		my %res;
 		foreach my $k (sort(keys(%seqtests))) {
 			$res{$k} = $seqcounts{$k} ? sprintf("%0.2f",$seqcounts{$k}/$total*100) : 0;
-			$out .= "$k:\t$seqcounts{$k}\t$res{$k}%\n";
+			$out .= "$seqdesc{$k}$seqcounts{$k}\t$res{$k}%\n";
 		}
 		print "$out\n";
 	}
@@ -160,8 +159,8 @@ sub process_cli {
 sub help {
 	print STDOUT <<EOT;
 
-fastq-stats.pl
-Analyses FASTQ files for typical DamIDseq features
+fastq-stats
+Analyses FASTQ files for typical DamID-seq features
 	
 Options:
 EOT
